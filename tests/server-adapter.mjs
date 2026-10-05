@@ -1,0 +1,13 @@
+import {registerHooks} from 'node:module';
+import {pathToFileURL} from 'node:url';
+registerHooks({resolve(specifier,context,next){if(specifier==='cloudflare:workers')return {url:pathToFileURL(process.cwd()+'/tests/local-env.mjs').href,shortCircuit:true};return next(specifier,context)}});
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+const {env}=await import('./local-env.mjs');
+const worker=(await import('../dist/server/index.js')).default;
+const port=Number(process.env.FAMILY_TEST_PORT||5189);
+const mime={'.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.json':'application/json'};
+const assets=async req=>{const u=new URL(req.url),p=path.resolve('dist/client','.'+decodeURIComponent(u.pathname));if(!p.startsWith(path.resolve('dist/client')+path.sep)||!fs.existsSync(p)||!fs.statSync(p).isFile())return new Response('Not found',{status:404});return new Response(fs.readFileSync(p),{headers:{'content-type':mime[path.extname(p)]||'application/octet-stream'}})};
+env.ASSETS={fetch:assets};
+http.createServer(async(req,res)=>{try{const url='http://127.0.0.1:'+port+req.url;const chunks=[];for await(const b of req)chunks.push(b);const h=new Headers(req.headers);const request=new Request(url,{method:req.method,headers:h,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});let r;if(new URL(url).pathname.startsWith('/_next/')||req.url==='/favicon.svg')r=await assets(request);else r=await worker.fetch(request,env,{props:{},waitUntil(p){p.catch(console.error)}});res.writeHead(r.status,Object.fromEntries(r.headers));res.end(Buffer.from(await r.arrayBuffer()))}catch(e){console.error(e);res.writeHead(500);res.end(String(e))}}).listen(port,'127.0.0.1',()=>console.log('Local acceptance preview: http://127.0.0.1:5173/ (isolated synthetic database)'));

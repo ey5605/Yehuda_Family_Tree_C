@@ -1,0 +1,16 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+import {inspectImport,emptyTree,addParent,exportTree,canonicalize} from '../lib/model.mjs';
+const base='http://127.0.0.1:'+(process.env.FAMILY_TEST_PORT||5189);let editorCookie='',viewerCookie='';const req=(p,o={})=>fetch(base+p,{...o,headers:{cookie:editorCookie,...o.headers}});
+async function login(role,password){const r=await fetch(base+'/api/login',{method:'POST',headers:{'Content-Type':'application/json','cf-connecting-ip':'test-api'},body:JSON.stringify({role,password})});assert.equal(r.status,200,await r.clone().text());return r.headers.get('set-cookie').split(';')[0]}
+editorCookie=await login('editor','test-edit-only');viewerCookie=await login('viewer','test-view-only');const put=(tree,revision,headers={})=>req('/api/tree',{method:'PUT',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify({tree,revision})});
+test('private routes reject anonymous users',async()=>{assert.equal((await req('/api/tree',{headers:{cookie:''}})).status,401)});
+test('database, images, roles, concurrent edits and atomic failure',async()=>{
+let original=await(await req('/api/tree')).json();
+let fixture=JSON.parse(fs.readFileSync('tests/fixtures/synthetic-family.json','utf8').replace(/^\uFEFF/,''));let t=inspectImport(fixture).tree;
+const image=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lxoAAAAASUVORK5CYII=','base64');const f=new FormData();f.append('file',new Blob([image],{type:'image/png'}),'test-only.png');const photoResponse=await req('/api/photos',{method:'POST',body:f});assert.equal(photoResponse.status,200);const photo=await photoResponse.json();t.persons[0].photo=photo;let r=await put(t,original.revision);assert.equal(r.status,200,await r.clone().text());const saved=await r.json();const reload=await(await req('/api/tree')).json();assert.deepEqual(reload.tree.persons,saved.tree.persons);assert.deepEqual(Buffer.from(await(await req(photo.url)).arrayBuffer()),image);
+const invalid=structuredClone(t);invalid.relationships.push({id:'self-test',type:'parent-child',parentId:t.persons[0].id,childId:t.persons[0].id});assert.equal((await put(invalid,saved.revision)).status,422);assert.equal((await(await req('/api/tree')).json()).revision,saved.revision);
+assert.equal((await put(t,original.revision)).status,409);
+assert.equal((await req('/api/tree',{headers:{cookie:viewerCookie}})).status,200);assert.equal((await put(t,saved.revision,{cookie:viewerCookie})).status,403);assert.equal((await req('/api/tree',{headers:{cookie:'yehuda_session=forged','oai-authenticated-user-id':'test-owner','oai-authenticated-user-email':'owner@test.invalid'}})).status,401);
+const full=exportTree(saved.tree,true);full.persons[0].photo={...photo,data:'data:image/png;base64,'+image.toString('base64')};const again=inspectImport(full);assert.equal(again.errors.length,0);assert.equal(again.conflicts.length,0);assert.deepEqual(again.tree.relationships,saved.tree.relationships);assert.equal(again.tree.persons[2].nameStatus,'unknown');assert.equal(again.tree.confirmations.length,1);
+fs.writeFileSync('work/verified-full-backup.json',JSON.stringify(full,null,2));console.log('Synthetic fixture retained in LOCAL database for browser export tests. Production remains empty.');
+});

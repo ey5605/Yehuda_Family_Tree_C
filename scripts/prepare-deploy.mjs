@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import path from 'node:path';
+const databaseId=process.env.D1_DATABASE_ID,bucket=process.env.R2_BUCKET_NAME||'yehuda-family-files';
+if(!databaseId||!/^[-\da-f]{36}$/i.test(databaseId)||databaseId.startsWith('00000000'))throw Error('Set D1_DATABASE_ID to the database created in your own Cloudflare account.');
+if(!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket))throw Error('Invalid R2_BUCKET_NAME');
+const file='dist/server/wrangler.json',config=JSON.parse(fs.readFileSync(file,'utf8'));
+config.name='yehuda-family-tree';config.workers_dev=true;
+config.d1_databases=[{binding:'DB',database_name:process.env.D1_DATABASE_NAME||'yehuda-family-db',database_id:databaseId,migrations_dir:path.resolve('drizzle')}];
+config.r2_buckets=[{binding:'BUCKET',bucket_name:bucket}];
+config.assets={...config.assets,run_worker_first:true};
+fs.writeFileSync(file,JSON.stringify(config,null,2)+'\n');
+console.log('Deployment configuration prepared for your Cloudflare account.');

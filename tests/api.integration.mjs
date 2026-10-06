@@ -1,7 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
 import {inspectImport,emptyTree,addParent,exportTree,canonicalize} from '../lib/model.mjs';
 const base='http://127.0.0.1:'+(process.env.FAMILY_TEST_PORT||5189);let editorCookie='',viewerCookie='';const req=(p,o={})=>fetch(base+p,{...o,headers:{cookie:editorCookie,...o.headers}});
-async function login(role,password){const r=await fetch(base+'/api/login',{method:'POST',headers:{'Content-Type':'application/json','cf-connecting-ip':'test-api'},body:JSON.stringify({role,password})});assert.equal(r.status,200,await r.clone().text());return r.headers.get('set-cookie').split(';')[0]}
+async function login(role,password){const r=await fetch(base+'/api/login',{method:'POST',headers:{'Content-Type':'application/json','cf-connecting-ip':crypto.randomUUID()},body:JSON.stringify({role,password})});assert.equal(r.status,200,await r.clone().text());return r.headers.get('set-cookie').split(';')[0]}
 editorCookie=await login('editor','test-edit-only');viewerCookie=await login('viewer','test-view-only');const put=(tree,revision,headers={})=>req('/api/tree',{method:'PUT',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify({tree,revision})});
 test('private routes reject anonymous users',async()=>{assert.equal((await req('/api/tree',{headers:{cookie:''}})).status,401)});
 test('database, images, roles, concurrent edits and atomic failure',async()=>{
